@@ -110,11 +110,10 @@ pub mod Stap {
             self.token_dispatcher().transfer(self.get_winner_address(), winner_amount);
 
             assert(self.get_current_balance() == 0, 'Pending stks to withdraw');
+            self.emit(Withdraw { winner_address: self.get_winner_address(), winner_amount });
             // Reset
             self.state.write(StapStates::NOT_WINNER_SET);
             self.winner_address.write(0x0.try_into().unwrap());
-            
-            self.emit(Withdraw { winner_address: self.get_winner_address(), winner_amount });
         }
 
         fn get_current_balance(self: @ContractState) -> u256 {
