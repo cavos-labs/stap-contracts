@@ -7,6 +7,7 @@ pub trait IStap<TContractState> {
     fn get_winner_address(self: @TContractState) -> ContractAddress;
     fn get_state(self: @TContractState) -> u8;
     fn withdraw(ref self: TContractState);
+    fn get_current_balance(self: @TContractState) -> u256;
 }
 
 #[starknet::contract]
@@ -14,9 +15,10 @@ pub mod Stap {
     // *************************************************************************
     //                            IMPORT
     // *************************************************************************
+    use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use stap::constants::stap::stap_constants::StapStates;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
-    use starknet::{ContractAddress, get_caller_address};
+    use starknet::{ContractAddress, get_caller_address, get_contract_address};
 
 
     // *************************************************************************
@@ -27,6 +29,27 @@ pub mod Stap {
         winner_address: ContractAddress,
         winning_number: u32,
         state: u8,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    pub enum Event {
+        Withdraw: Withdraw,
+        Winner: Winner,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Withdraw {
+        #[key]
+        pub winner_address: ContractAddress,
+        pub winner_amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Winner {
+        #[key]
+        pub winner_address: ContractAddress,
+        pub winner_amount: u256,
     }
 
     // *************************************************************************
@@ -41,9 +64,18 @@ pub mod Stap {
 
     #[abi(embed_v0)]
     impl StapImpl of super::IStap<ContractState> {
-        fn verify_winner(ref self: ContractState, player_number: u32){
+        fn verify_winner(ref self: ContractState, player_number: u32) {
             if player_number == self.winning_number.read() {
+                let caller: ContractAddress = get_caller_address();
+                self.winner_address.write(caller);
                 self.state.write(StapStates::HAS_WINNER);
+                self
+                    .emit(
+                        Winner {
+                            winner_address: self.get_winner_address(),
+                            winner_amount: self.get_current_balance(),
+                        },
+                    );
             }
         }
         fn set_winning_number(ref self: ContractState, winning_number: u32) {
@@ -73,6 +105,30 @@ pub mod Stap {
             assert!(self.winner_address.read() == caller, "You are not the winner");
             assert(self.state.read() == StapStates::HAS_WINNER, 'No winner yet');
 
+            let winner_amount: u256 = self.get_current_balance();
+            self.token_dispatcher().approve(self.get_winner_address(), winner_amount);
+            self.token_dispatcher().transfer(self.get_winner_address(), winner_amount);
+
+            assert(self.get_current_balance() == 0, 'Pending stks to withdraw');
+            self.state.write(StapStates::NOT_WINNER_SET);
+            self.emit(Withdraw { winner_address: self.get_winner_address(), winner_amount });
+        }
+
+        fn get_current_balance(self: @ContractState) -> u256 {
+            self.token_dispatcher().balance_of(get_contract_address())
+        }
+    }
+    // *************************************************************************
+    //                            INTERNALS
+    // *************************************************************************
+    #[generate_trait]
+    impl InternalImpl of InternalTrait {
+        fn token_dispatcher(self: @ContractState) -> IERC20Dispatcher {
+            IERC20Dispatcher {
+                contract_address: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
+                    .try_into()
+                    .unwrap(),
+            }
         }
     }
 }
