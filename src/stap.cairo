@@ -65,6 +65,7 @@ pub mod Stap {
     #[abi(embed_v0)]
     impl StapImpl of super::IStap<ContractState> {
         fn verify_winner(ref self: ContractState, player_number: u32) {
+            assert(self.state.read() == StapStates::NOT_WINNER_SET, 'We have winner');
             if player_number == self.winning_number.read() {
                 let caller: ContractAddress = get_caller_address();
                 self.winner_address.write(caller);
